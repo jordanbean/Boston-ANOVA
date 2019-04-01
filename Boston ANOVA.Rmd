@@ -1,0 +1,156 @@
+---
+title: "Boston Housing Differences"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(readxl)
+library(stringr)
+library(purrr)
+library(DescTools)
+```
+
+```{r}
+housing_data <- read_csv('\\Boston Data\\ast2018full.csv')
+
+zip_neighborhood <- read_xls('\\Boston Data\\boston-office-by-zipcode.xls')
+```
+
+```{r}
+head(housing_data)
+head(zip_neighborhood)
+```
+
+```{r}
+housing_data %>%
+  select(ZIPCODE, AV_TOTAL, LIVING_AREA) %>%
+  left_join(zip_neighborhood %>%
+              mutate('Zip Code' = paste(0, `Zip Code`, sep = ''))
+            , by = c('ZIPCODE' = 'Zip Code')) -> housing_data
+
+housing_data[sample(nrow(housing_data), 25), ]
+```
+
+```{r}
+unique(housing_data$`Neighborhood/Municipality`)
+```
+
+```{r}
+housing_data %>%
+  mutate(neighborhood = `Neighborhood/Municipality`) %>%
+  filter(str_detect(neighborhood, paste(c('Back Bay', 'Beacon Hill', 'South End', 'North End', 'Kenmore', 'Downtown Crossing / Fin. District', 'West End'), collapse = '|')), 
+         !is.na(LIVING_AREA), 
+         AV_TOTAL > 0,
+         LIVING_AREA > 0) %>%
+  select(AV_TOTAL, LIVING_AREA, neighborhood) %>%
+  mutate(neighborhood = str_replace(neighborhood, 'Back Bay / Fenway', 'Back Bay'),
+         neighborhood = str_replace(neighborhood,  'Faneuil Hall / North End', 'North End'),
+         neighborhood = str_replace(neighborhood,  'Downtown Crossing / Fin. District', 'Downtown'),
+         price_per_sqft = AV_TOTAL / LIVING_AREA) -> housing_data
+```
+
+```{r}
+housing_trimmed = data.frame()
+
+for (nghbhood in unique(housing_data$neighborhood)) {
+  housing_neighborhood <- filter(housing_data, neighborhood == nghbhood)
+  
+  trimmed <- Trim(housing_neighborhood$price_per_sqft, trim = 0.1)
+  df <- data.frame(values = trimmed, neighborhood = nghbhood)
+  
+  housing_trimmed = rbind(housing_trimmed, df)
+}
+```
+
+
+```{r}
+housing_data %>%
+  group_by(neighborhood) %>%
+  summarize(mean_value = mean(AV_TOTAL),
+            median_value = median(AV_TOTAL),
+            mean_sq_ft = mean(price_per_sqft),
+            median_sq_ft = median(price_per_sqft),
+            count = n()) %>%
+  arrange(neighborhood)
+```
+
+```{r}
+ggplot(data = housing_trimmed) +
+  geom_boxplot(aes(x = neighborhood, y = values, fill = neighborhood)) +
+  theme(panel.background = element_blank(), legend.position = 'none') +
+  xlab('Neighborhood') +
+  ylab('Price per Square Foot')
+
+housing_trimmed %>%
+  group_by(neighborhood) %>%
+  summarize(mean_sqft = mean(values)) %>%
+  ggplot(aes(x = neighborhood, y = mean_sqft, fill = neighborhood, color = neighborhood, label = round(mean_sqft, 2))) +
+  geom_col() +
+  xlab('Neighborhood') +
+  ylab('Mean Price per Square Foot') +
+  ggtitle('Mean Price per Square Foot by Neighborhood') +
+  geom_text(nudge_y = 30) +
+  theme(panel.background = element_blank(), legend.position = 'none')
+
+```
+
+
+```{r}
+housing_trimmed %>%
+  group_by(neighborhood) %>%
+  summarize(mean_sq_ft = mean(values),
+            median_sq_ft = median(values),
+            count = n()) %>%
+  mutate(neighborhood = as.character(neighborhood)) %>%
+  arrange(neighborhood)
+```
+
+```{r}
+mean(housing_trimmed$values)
+nrow(housing_trimmed)
+```
+
+
+```{r}
+summary(aov(values ~ neighborhood, data = housing_trimmed))
+plot(aov(values ~ neighborhood, data = housing_trimmed))
+```
+
+```{r}
+pairwise.t.test(housing_trimmed$values, as.factor(housing_trimmed$neighborhood), p.adj = 'bonf')
+```
+
+```{r}
+tukey_hsd <- TukeyHSD(aov(values ~ neighborhood, data = housing_trimmed), 'neighborhood')
+
+tukey_hsd
+```
+
+```{r}
+tukey_results <- as.data.frame(tukey_hsd[['neighborhood']])
+
+tukey_results
+
+ggplot(tukey_results, aes(x = row.names(tukey_results), y = diff, color = row.names(tukey_results))) +
+  geom_point(size = 4) +
+  geom_errorbar(aes(ymax = lwr, ymin = upr)) +
+  coord_flip() +
+  theme(legend.position = 'none', panel.background = element_blank()) +
+  geom_hline(yintercept = 0, linetype = 'dashed', alpha = 0.5) +
+  xlab('Neighborhood') +
+  ylab('Mean Difference | 95% Confidence Interval |')
+
+```
+
+
+```{r}
+data.frame(Group = c('A','B','C','D','E'), Value = c(runif(1, min=5.5, max=6), runif(1, min=5, max=7), runif(1, min=5, max=7), runif(1, min=5.5, max=6), runif(1, min=5.5, max=5.5))) %>%
+  ggplot(aes(x = Group, y = Value, label = round(Value, 2), color = Group, fill = Group)) +
+  geom_col() +
+  theme(legend.position = 'none', panel.background = element_blank()) +
+  geom_text(nudge_y = 0.25)
+
+```
